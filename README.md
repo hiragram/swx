@@ -21,13 +21,21 @@ swx apple/swift-format --exec swift-format -- --help
 
 ## Installation
 
-### Build from source
+```bash
+curl -fsSL https://raw.githubusercontent.com/hiragram/swx/main/install.sh | bash
+```
+
+You can also specify a custom install directory:
 
 ```bash
-git clone https://github.com/yourname/swx.git
-cd swx
-swift build -c release
-cp .build/release/swx /usr/local/bin/
+INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/hiragram/swx/main/install.sh | bash
+```
+
+To uninstall, remove the binary and cache directory:
+
+```bash
+rm /usr/local/bin/swx
+rm -rf ~/.swx
 ```
 
 ## How it works
