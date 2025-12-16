@@ -81,6 +81,11 @@ public struct Runner: Sendable {
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
 
+        // Inherit stdio so that MCP servers can communicate via stdin/stdout
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+
         try process.run()
         process.waitUntilExit()
 
