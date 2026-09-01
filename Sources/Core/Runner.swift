@@ -24,9 +24,18 @@ public enum RunnerError: Error {
 
 public struct Runner: Sendable {
     public let packagePath: String
+    private let processExecutor: ProcessExecutor
 
     public init(packagePath: String) {
+        self.init(
+            packagePath: packagePath,
+            processExecutor: .live
+        )
+    }
+
+    init(packagePath: String, processExecutor: ProcessExecutor) {
         self.packagePath = packagePath
+        self.processExecutor = processExecutor
     }
 
     public var buildCommand: [String] {
@@ -56,58 +65,45 @@ public struct Runner: Sendable {
     }
 
     public func build() throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
-        process.arguments = ["build", "-c", "release"]
-        process.currentDirectoryURL = URL(fileURLWithPath: packagePath)
+        let result = try processExecutor.execute(
+            ProcessRequest(
+                executablePath: "/usr/bin/swift",
+                arguments: ["build", "-c", "release"],
+                currentDirectoryPath: packagePath,
+                standardIO: .captureOutput(mergingStandardError: true)
+            )
+        )
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-            throw RunnerError.buildFailed(output)
+        if result.terminationStatus != 0 {
+            throw RunnerError.buildFailed(result.outputString)
         }
     }
 
     public func run(executable: String, arguments: [String]) throws {
-        let path = executablePath(name: executable)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-
         // Inherit stdio so that MCP servers can communicate via stdin/stdout
-        process.standardInput = FileHandle.standardInput
-        process.standardOutput = FileHandle.standardOutput
-        process.standardError = FileHandle.standardError
+        let result = try processExecutor.execute(
+            ProcessRequest(
+                executablePath: executablePath(name: executable),
+                arguments: arguments,
+                currentDirectoryPath: nil,
+                standardIO: .inherit
+            )
+        )
 
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            throw RunnerError.executionFailed(process.terminationStatus)
+        if result.terminationStatus != 0 {
+            throw RunnerError.executionFailed(result.terminationStatus)
         }
     }
 
     public func fetchProducts() throws -> [ProductInfo] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
-        process.arguments = ["package", "describe", "--type", "json"]
-        process.currentDirectoryURL = URL(fileURLWithPath: packagePath)
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        try process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let result = try processExecutor.execute(
+            ProcessRequest(
+                executablePath: "/usr/bin/swift",
+                arguments: ["package", "describe", "--type", "json"],
+                currentDirectoryPath: packagePath,
+                standardIO: .captureOutput(mergingStandardError: false)
+            )
+        )
 
         struct PackageDescription: Decodable {
             struct Product: Decodable {
@@ -137,7 +133,7 @@ public struct Runner: Sendable {
             let products: [Product]
         }
 
-        let description = try JSONDecoder().decode(PackageDescription.self, from: data)
+        let description = try JSONDecoder().decode(PackageDescription.self, from: result.output)
         return description.products.map { product in
             let type: ProductType = product.isExecutable ? .executable : .library
             return ProductInfo(name: product.name, type: type)
