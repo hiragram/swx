@@ -2,8 +2,17 @@ import Foundation
 
 public struct CacheManager: Sendable {
     public let baseDirectory: String
+    private let processExecutor: ProcessExecutor
 
     public init(baseDirectory: String? = nil) {
+        self.init(
+            baseDirectory: baseDirectory,
+            processExecutor: .live
+        )
+    }
+
+    init(baseDirectory: String? = nil, processExecutor: ProcessExecutor) {
+        self.processExecutor = processExecutor
         if let baseDirectory {
             self.baseDirectory = baseDirectory
         } else {
@@ -42,24 +51,17 @@ public struct CacheManager: Sendable {
     }
 
     private func runGit(_ arguments: [String], in directory: String?) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        if let directory {
-            process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        }
+        let result = try processExecutor.execute(
+            ProcessRequest(
+                executablePath: "/usr/bin/git",
+                arguments: arguments,
+                currentDirectoryPath: directory,
+                standardIO: .captureOutput(mergingStandardError: true)
+            )
+        )
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-            throw CacheManagerError.gitFailed(output)
+        if result.terminationStatus != 0 {
+            throw CacheManagerError.gitFailed(result.outputString)
         }
     }
 }
